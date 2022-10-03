@@ -5,7 +5,7 @@ import { onMounted, ref } from "vue";
 // Google parameters
 const API_KEY = "AIzaSyBY9WkncUkBNR-y5SJ5Sp6PP3FJJVMIxV8";
 const DISCOVERY_DRIVE =
-    "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest";
+  "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest";
 const DISCOVERY_DOC = "https://docs.googleapis.com/$discovery/rest?version=v1";
 const SCOPES =
   "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents";
@@ -13,14 +13,13 @@ const SCOPES =
 const gapiInited = ref(false);
 const gisInited = ref(false);
 const tokenClient = ref("");
-const tokenApi = ref("");
 const file = ref(null);
 const listDocs = ref([]);
 const varMerge = ref([]);
+const errors = ref('');
+const loader = ref(false);
 
 onMounted(() => {
-  document.getElementById("authorize_button").style.visibility = "hidden";
-  document.getElementById("signout_button").style.visibility = "hidden";
   // Loading scripts google
   loadScript("https://apis.google.com/js/api.js").then(() => gapiLoaded());
   loadScript("https://accounts.google.com/gsi/client").then(() => gisLoaded());
@@ -40,7 +39,6 @@ const initializeGapiClient = () => {
     .then(() => {
       gapiInited.value = true;
       gapi.client.load("drive", "v3").then(() => console.log("drive loaded"));
-      maybeEnableButtons();
     });
 };
 
@@ -54,43 +52,20 @@ const gisLoaded = () => {
     login_hint: "agcoptest@gmail.com"
   });
   gisInited.value = true;
-  maybeEnableButtons();
-};
-
-// Show button if google scripts are initialize
-const maybeEnableButtons = () => {
-  if (gapiInited.value && gisInited.value) {
-    document.getElementById("authorize_button").style.visibility = "visible";
-  }
 };
 
 // Authentication method
 const handleAuthClick = () => {
-  tokenClient.value.callback = async (resp) => {
-    if (resp.error !== undefined) {
+  tokenClient.value.callback = async (response) => {
+    if (response.error !== undefined) {
       throw resp;
     }
-    document.getElementById("signout_button").style.visibility = "visible";
-    document.getElementById("authorize_button").innerText = "Refresh";
     listDocs.value = [];
     checkFolder();
   };
   // Open authentication form
   if (gapi.client.getToken() === null) {
     tokenClient.value.requestAccessToken({ prompt: "select_account" });
-  }
-};
-
-// Logout method
-const handleSignoutClick = () => {
-  tokenApi.value = gapi.client.getToken();
-  if (tokenApi.value !== null) {
-    google.accounts.oauth2.revoke(tokenApi.value.access_token);
-    gapi.client.setToken("");
-    document.getElementById("content").innerText = "";
-    document.getElementById("authorize_button").innerText = "Connexion";
-    document.getElementById("signout_button").style.visibility = "hidden";
-    listDocs.value = [];
   }
 };
 
@@ -143,7 +118,7 @@ const uploadFile = () => {
     handleAuthClick();
   } else {
     // Show loader until the file is upload
-    document.getElementById("loader").style.visibility = "visible";
+    loader.value = true;
 
     const formData = new FormData();
 
@@ -194,15 +169,16 @@ const uploadFile = () => {
         return response.json();
       })
       .then((value) => {
-        document.getElementById("loader").style.visibility = "hidden";
+        loader.value = false;
         showDocs();
         openDoc(value.id, mimeTypeFile);
       });
   }
 };
 
-// Get the lits of documents in the folder
+// Get list of documents in the folder
 const showDocs = () => {
+  loader.value = true;
   listDocs.value = [];
   gapi.client.drive.files
     .list({
@@ -213,6 +189,7 @@ const showDocs = () => {
       docs.map((val) => {
         listDocs.value.push(val);
       });
+      loader.value = false;
     });
 };
 
@@ -230,6 +207,7 @@ const openDoc = (id, fileType) => {
 
 // Get the data to merge
 const mergeDoc = (docId, index) => {
+  loader.value = true;
   const dataToMerge = JSON.parse(varMerge.value[index].value);
   Object.entries(dataToMerge).forEach(([key, dataBlock]) => {
     let request = [];
@@ -244,42 +222,62 @@ const mergeDoc = (docId, index) => {
         }
       });
     });
-    merge(docId, request);
+    merge(docId, request, key);
   });
+  loader.value = false;
 };
 
 // Merge the data
-const merge = (docId, requests) => {
-  /*gapi.client.drive.files.copy({
-          'fileId': docId
-        }).then((resp) =>{
-          console.log(resp);
-        })*/
-  console.log(docId);
-  console.log(requests);
-  gapi.client.docs.documents
-    .batchUpdate({
-      documentId: docId,
-      resource: {
-        requests
-      }
+const merge = (idDocTemplate, requests, fileName) => {
+  gapi.client.drive.files
+    .copy({
+      fileId: idDocTemplate,
+      name: fileName
     })
-    .then(() => {
-      let fileUrl =
-        "https://docs.google.com/document/d/" +
-        docId +
-        "/export?format=pdf&portrait=false&size=A4";
-      window.open(fileUrl).focus();
+    .then((response) => {
+      let idCopyTemplate = response.result.id;
+      gapi.client.docs.documents
+        .batchUpdate({
+          documentId: idCopyTemplate,
+          resource: {
+            requests
+          }
+        })
+        .then(() => {
+          let fileUrl =
+            "https://docs.google.com/document/d/" +
+            idCopyTemplate +
+            "/export?format=pdf&portrait=false&size=A4";
+          window.open(fileUrl).focus();
+        }).then(() => deleteDoc(idCopyTemplate));
     });
+};
+
+// Method to delete document
+const deleteDoc = (idDoc) => {
+  loader.value = true;
+  gapi.client.drive.files
+    .delete({
+      fileId: idDoc
+    })
+    .then((response) => {
+      if(response.result){
+          errors.value = response.result;
+      }else{
+        showDocs();
+        console.log(' Document delete !')
+      }
+    });
+    loader.value = false;
 };
 </script>
 
 <template>
-  <div id="loader">
+  <div id="loader" v-show="loader">
     <div class="loader"></div>
   </div>
   <section>
-    <button id="authorize_button" @click="handleAuthClick()" class="bigbutton">
+    <button v-show="gisInited" id="authorize_button" @click="handleAuthClick()" class="bigbutton">
       Connexion
     </button>
     <label for="file">upload file</label>
@@ -290,9 +288,6 @@ const merge = (docId, requests) => {
       type="file"
       style="display: none"
     />
-    <button id="signout_button" class="bigbutton" @click="handleSignoutClick()">
-      Sign Out
-    </button>
   </section>
   <section>
     <ul v-for="(doc, index) in listDocs">
@@ -313,6 +308,9 @@ const merge = (docId, requests) => {
       </button>
       <button class="smallbutton" @click="mergeDoc(doc.id, index)">
         merge
+      </button>
+      <button class="smallbutton" @click="deleteDoc(doc.id)">
+        delete
       </button>
     </ul>
   </section>
@@ -370,11 +368,6 @@ label {
   justify-content: center;
   align-items: center;
 }
-
-#loader {
-  visibility: hidden;
-}
-
 .loader {
   border: 16px solid #f3f3f3;
   /* Light grey */

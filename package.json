@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-basic-ssl": "^0.1.2",
+    "jose": "^4.10.0",
     "vue": "^3.2.38",
     "vue-plugin-load-script": "^2.1.1"
   },

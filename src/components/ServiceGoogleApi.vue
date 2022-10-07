@@ -1,6 +1,7 @@
 <script setup>
 import { loadScript } from "vue-plugin-load-script";
 import { onMounted, ref } from "vue";
+import credentials from "../../agcoptest-884d96911228.json";
 
 // Google parameters
 const API_KEY = "AIzaSyBY9WkncUkBNR-y5SJ5Sp6PP3FJJVMIxV8";
@@ -16,8 +17,9 @@ const tokenClient = ref("");
 const file = ref(null);
 const listDocs = ref([]);
 const varMerge = ref([]);
-const errors = ref('');
+const errors = ref("");
 const loader = ref(false);
+const access_token = ref("");
 
 onMounted(() => {
   // Loading scripts google
@@ -39,18 +41,111 @@ const initializeGapiClient = () => {
     .then(() => {
       gapiInited.value = true;
       gapi.client.load("drive", "v3").then(() => console.log("drive loaded"));
+      showDocs();
     });
 };
 
-// Initialize google Oauth2
-const gisLoaded = () => {
-  tokenClient.value = google.accounts.oauth2.initTokenClient({
-    client_id:
-      "625476714059-aoq8t870qq0u0lc1a4ejpd0fjehtre4t.apps.googleusercontent.com",
-    scope: SCOPES,
-    callback: "",
+// Generate access_token for api 
+const gisLoaded = async () => {
+  let date = Math.floor(new Date().getTime() / 1000.0);
+
+  let claim = {};
+  claim.aud = credentials.token_uri;
+  claim.scope = SCOPES;
+  claim.iss = credentials.client_email;
+  claim.exp = date + 1000;
+  claim.iat = date;
+  claim = JSON.stringify(claim);
+
+  let b64header = window.btoa(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  let b64claim = window.btoa(claim);
+  let sigData = new TextEncoder().encode(
+    b64UrlEncoder(b64header) + "." + b64UrlEncoder(b64claim)
+  );
+  let token = "";
+
+  await importRsaKey(credentials.private_key).then(async (response) => {
+    await window.crypto.subtle
+      .sign({ name: "RSASSA-PKCS1-v1_5" }, response, sigData)
+      .then((response) => {
+        let b64sig = b64UrlEncoderByte(response);
+        token =
+          b64UrlEncoder(b64header) +
+          "." +
+          b64UrlEncoder(b64claim) +
+          "." +
+          b64sig;
+      });
   });
-  gisInited.value = true;
+
+  const call = await fetch(
+    "https://oauth2.googleapis.com/token?grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=" +
+      token,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    }
+  ).then(async (response) => {
+    access_token.value = await response.json();
+    gapi.auth.setToken({
+      access_token: access_token.value.access_token
+    });
+  });
+
+  console.log(access_token.value.access_token);
+};
+
+const str2ab = (str) => {
+  const buf = new ArrayBuffer(str.length);
+  const bufView = new Uint8Array(buf);
+  for (let i = 0, strLen = str.length; i < strLen; i++) {
+    bufView[i] = str.charCodeAt(i);
+  }
+  return buf;
+};
+
+const importRsaKey = (pem) => {
+  // fetch the part of the PEM string between header and footer
+  const pemHeader = "-----BEGIN PRIVATE KEY-----";
+  const pemFooter = "-----END PRIVATE KEY-----";
+  const pemContents = pem.substring(
+    pemHeader.length,
+    pem.length - pemFooter.length - 1
+  );
+  // base64 decode the string to get the binary data
+  const binaryDerString = window.atob(pemContents);
+  // convert from a binary string to an ArrayBuffer
+  const binaryDer = str2ab(binaryDerString);
+
+  return window.crypto.subtle.importKey(
+    "pkcs8",
+    binaryDer,
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      hash: "SHA-256"
+    },
+    true,
+    ["sign"]
+  );
+};
+
+const b64UrlEncoder = (str) => {
+  return str.replace(/\+/g, "-").replace(/\//g, "_").replace(/\=+$/, "");
+};
+
+const b64UrlEncoderByte = (byteArray) => {
+  return btoa(
+    Array.from(new Uint8Array(byteArray))
+      .map((val) => {
+        return String.fromCharCode(val);
+      })
+      .join("")
+  )
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/\=/g, "");
 };
 
 // Authentication method
@@ -91,13 +186,12 @@ const checkFolder = () => {
 
 // Create new folder method
 const createFolder = () => {
-  let accessToken = gapi.auth.getToken().access_token;
   let request = gapi.client.request({
     path: "drive/v3/files",
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: "Bearer " + accessToken
+      Authorization: "Bearer " + access_token.value.access_token
     },
     body: {
       name: "agcop",
@@ -112,67 +206,62 @@ const createFolder = () => {
 
 // Method to upload csv or docx file to google drive
 const uploadFile = () => {
-  // Verify if client is connect
-  if (gapi.client.getToken() === null) {
-    handleAuthClick();
-  } else {
-    // Show loader until the file is upload
-    loader.value = true;
+  // Show loader until the file is upload
+  loader.value = true;
 
-    const formData = new FormData();
+  const formData = new FormData();
 
-    const accessToken = gapi.auth.getToken().access_token;
+  const parentFolder = localStorage.getItem("parent_folder");
 
-    const parentFolder = localStorage.getItem("parent_folder");
+  const mimeTypeFile = file.value.files[0].type;
 
-    const mimeTypeFile = file.value.files[0].type;
-
-    // Verify the type of file, only csv and docx accepted
-    switch (mimeTypeFile) {
-      case "application/vnd.ms-excel": {
-        var mimeTypeGoogle = "vnd.google-apps.spreadsheet";
-        break;
-      }
-      case "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
-        var mimeTypeGoogle = "application/vnd.google-apps.document";
-        break;
-      }
-      default: {
-        throw "type not accepted";
-      }
+  // Verify the type of file, only csv and docx accepted
+  switch (mimeTypeFile) {
+    case "application/vnd.ms-excel": {
+      var mimeTypeGoogle = "vnd.google-apps.spreadsheet";
+      break;
     }
-
-    const metafile = new Blob([file.value.files[0]], { type: mimeTypeFile });
-
-    const metadata = {
-      name: file.value.files[0].name,
-      mimeType: mimeTypeGoogle,
-      parents: [parentFolder]
-    };
-
-    formData.append(
-      "metadata",
-      new Blob([JSON.stringify(metadata)], { type: "application/json" })
-    );
-    formData.append("file", metafile);
-
-    fetch(
-      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
-      {
-        method: "POST",
-        headers: new Headers({ Authorization: "Bearer " + accessToken }),
-        body: formData
-      }
-    )
-      .then((response) => {
-        return response.json();
-      })
-      .then((value) => {
-        loader.value = false;
-        showDocs();
-        openDoc(value.id, mimeTypeFile);
-      });
+    case "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+      var mimeTypeGoogle = "application/vnd.google-apps.document";
+      break;
+    }
+    default: {
+      throw "type not accepted";
+    }
   }
+
+  const metafile = new Blob([file.value.files[0]], { type: mimeTypeFile });
+
+  const metadata = {
+    name: file.value.files[0].name,
+    mimeType: mimeTypeGoogle,
+    parents: [parentFolder]
+  };
+
+  formData.append(
+    "metadata",
+    new Blob([JSON.stringify(metadata)], { type: "application/json" })
+  );
+  formData.append("file", metafile);
+
+  fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+    {
+      method: "POST",
+      headers: new Headers({
+        Authorization: "Bearer " + access_token.value.access_token
+      }),
+      body: formData
+    }
+  )
+    .then((response) => {
+      return response.json();
+    })
+    .then((value) => {
+      loader.value = false;
+      showDocs();
+      openDoc(value.id, mimeTypeFile);
+    });
 };
 
 // Get list of documents in the folder
@@ -248,7 +337,8 @@ const merge = (idDocTemplate, requests, fileName) => {
             idCopyTemplate +
             "/export?format=pdf&portrait=false&size=A4";
           window.open(fileUrl).focus();
-        }).then(() => deleteDoc(idCopyTemplate));
+        })
+        .then(() => deleteDoc(idCopyTemplate));
     });
 };
 
@@ -260,14 +350,14 @@ const deleteDoc = (idDoc) => {
       fileId: idDoc
     })
     .then((response) => {
-      if(response.result){
-          errors.value = response.result;
-      }else{
+      if (response.result) {
+        errors.value = response.result;
+      } else {
         showDocs();
-        console.log(' Document delete !')
+        console.log(" Document delete !");
       }
     });
-    loader.value = false;
+  loader.value = false;
 };
 </script>
 
@@ -276,7 +366,12 @@ const deleteDoc = (idDoc) => {
     <div class="loader"></div>
   </div>
   <section>
-    <button v-show="gisInited" id="authorize_button" @click="handleAuthClick()" class="bigbutton">
+    <button
+      v-show="gisInited"
+      id="authorize_button"
+      @click="handleAuthClick()"
+      class="bigbutton"
+    >
       Connexion
     </button>
     <label for="file">upload file</label>
@@ -308,14 +403,12 @@ const deleteDoc = (idDoc) => {
       <button class="smallbutton" @click="mergeDoc(doc.id, index)">
         merge
       </button>
-      <button class="smallbutton" @click="deleteDoc(doc.id)">
-        delete
-      </button>
+      <button class="smallbutton" @click="deleteDoc(doc.id)">delete</button>
     </ul>
   </section>
   <!--<section>
-      <iframe src="https://docs.google.com/document/d/1BYz7JUy3c5xOuOMbzZ5EmCUOpD9iu6F1MU9S0KEsVXs/edit" id="googleFrame"></iframe>
-    </section>-->
+          <iframe src="https://docs.google.com/document/d/1BYz7JUy3c5xOuOMbzZ5EmCUOpD9iu6F1MU9S0KEsVXs/edit" id="googleFrame"></iframe>
+        </section>-->
 </template>
 
 <style scoped>
@@ -367,6 +460,7 @@ label {
   justify-content: center;
   align-items: center;
 }
+
 .loader {
   border: 16px solid #f3f3f3;
   /* Light grey */

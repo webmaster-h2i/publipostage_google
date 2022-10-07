@@ -2,18 +2,14 @@
 import { loadScript } from "vue-plugin-load-script";
 import { onMounted, ref } from "vue";
 import credentials from "../../agcoptest-884d96911228.json";
+import * as tgg from "../assets/token_google_generator";
 
 // Google parameters
 const API_KEY = "AIzaSyBY9WkncUkBNR-y5SJ5Sp6PP3FJJVMIxV8";
-const DISCOVERY_DRIVE =
-  "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest";
+const DISCOVERY_DRIVE = "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest";
 const DISCOVERY_DOC = "https://docs.googleapis.com/$discovery/rest?version=v1";
-const SCOPES =
-  "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents";
+const SCOPES = "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents";
 
-const gapiInited = ref(false);
-const gisInited = ref(false);
-const tokenClient = ref("");
 const file = ref(null);
 const listDocs = ref([]);
 const varMerge = ref([]);
@@ -22,12 +18,13 @@ const loader = ref(false);
 const access_token = ref("");
 
 onMounted(() => {
-  // Loading scripts google
+  // load google api script
   loadScript("https://apis.google.com/js/api.js").then(() => gapiLoaded());
-  loadScript("https://accounts.google.com/gsi/client").then(() => gisLoaded());
+  // create an access token for google api
+  loadScript("https://accounts.google.com/gsi/client").then(() => gauthLoaded());
 });
 
-// Initialize google api client
+// initialize google api client
 const gapiLoaded = () => {
   gapi.load("client", initializeGapiClient);
 };
@@ -39,48 +36,49 @@ const initializeGapiClient = () => {
       discoveryDocs: [DISCOVERY_DOC, DISCOVERY_DRIVE]
     })
     .then(() => {
-      gapiInited.value = true;
       gapi.client.load("drive", "v3").then(() => console.log("drive loaded"));
+      checkFolder();
       showDocs();
     });
 };
 
-// Generate access_token for api 
-const gisLoaded = async () => {
-  let date = Math.floor(new Date().getTime() / 1000.0);
+// generate access_token
+const gauthLoaded = async () => {
 
+  let jwt = "";
+  // create header of jwt in base64-url
+  let header = tgg.b64UrlEncoder(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  // get date in seconds
+  let date = Math.floor(new Date().getTime() / 1000.0);
+  // create payload of jwt in base64-url
   let claim = {};
   claim.aud = credentials.token_uri;
   claim.scope = SCOPES;
   claim.iss = credentials.client_email;
   claim.exp = date + 1000;
   claim.iat = date;
-  claim = JSON.stringify(claim);
-
-  let b64header = window.btoa(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  let b64claim = window.btoa(claim);
+  claim = tgg.b64UrlEncoder(JSON.stringify(claim));
+  // create a array of byte with data sign
   let sigData = new TextEncoder().encode(
-    b64UrlEncoder(b64header) + "." + b64UrlEncoder(b64claim)
+    header + "." + claim
   );
-  let token = "";
 
-  await importRsaKey(credentials.private_key).then(async (response) => {
+  // create a cryptoKey with the pem and sign the jwt
+  await tgg.importRsaKey(credentials.private_key).then(async (response) => {
     await window.crypto.subtle
       .sign({ name: "RSASSA-PKCS1-v1_5" }, response, sigData)
       .then((response) => {
-        let b64sig = b64UrlEncoderByte(response);
-        token =
-          b64UrlEncoder(b64header) +
-          "." +
-          b64UrlEncoder(b64claim) +
-          "." +
-          b64sig;
+        // convert sign to b64-url
+        let b64sig = tgg.b64UrlEncoderByte(response);
+        // format the token
+        jwt = header +"."+claim +"."+b64sig;
       });
   });
 
-  const call = await fetch(
+  // request access_token to google api with the jwt
+  await fetch(
     "https://oauth2.googleapis.com/token?grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=" +
-      token,
+      jwt,
     {
       method: "POST",
       headers: {
@@ -89,78 +87,11 @@ const gisLoaded = async () => {
     }
   ).then(async (response) => {
     access_token.value = await response.json();
+    // set access_token 
     gapi.auth.setToken({
       access_token: access_token.value.access_token
     });
   });
-
-  console.log(access_token.value.access_token);
-};
-
-const str2ab = (str) => {
-  const buf = new ArrayBuffer(str.length);
-  const bufView = new Uint8Array(buf);
-  for (let i = 0, strLen = str.length; i < strLen; i++) {
-    bufView[i] = str.charCodeAt(i);
-  }
-  return buf;
-};
-
-const importRsaKey = (pem) => {
-  // fetch the part of the PEM string between header and footer
-  const pemHeader = "-----BEGIN PRIVATE KEY-----";
-  const pemFooter = "-----END PRIVATE KEY-----";
-  const pemContents = pem.substring(
-    pemHeader.length,
-    pem.length - pemFooter.length - 1
-  );
-  // base64 decode the string to get the binary data
-  const binaryDerString = window.atob(pemContents);
-  // convert from a binary string to an ArrayBuffer
-  const binaryDer = str2ab(binaryDerString);
-
-  return window.crypto.subtle.importKey(
-    "pkcs8",
-    binaryDer,
-    {
-      name: "RSASSA-PKCS1-v1_5",
-      hash: "SHA-256"
-    },
-    true,
-    ["sign"]
-  );
-};
-
-const b64UrlEncoder = (str) => {
-  return str.replace(/\+/g, "-").replace(/\//g, "_").replace(/\=+$/, "");
-};
-
-const b64UrlEncoderByte = (byteArray) => {
-  return btoa(
-    Array.from(new Uint8Array(byteArray))
-      .map((val) => {
-        return String.fromCharCode(val);
-      })
-      .join("")
-  )
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/\=/g, "");
-};
-
-// Authentication method
-const handleAuthClick = () => {
-  tokenClient.value.callback = async (response) => {
-    if (response.error !== undefined) {
-      throw resp;
-    }
-    listDocs.value = [];
-    checkFolder();
-  };
-  // Open authentication form
-  if (gapi.client.getToken() === null) {
-    tokenClient.value.requestAccessToken({ prompt: "select_account" });
-  }
 };
 
 // Check if folder exist, if not create one
@@ -176,7 +107,6 @@ const checkFolder = () => {
         folder.map((val) => {
           localStorage.setItem("parent_folder", val.id);
           console.log("folder agcop exist");
-          showDocs();
         });
       } else {
         createFolder();
@@ -208,12 +138,19 @@ const createFolder = () => {
 const uploadFile = () => {
   // Show loader until the file is upload
   loader.value = true;
+  errors.value = "";
 
   const formData = new FormData();
 
   const parentFolder = localStorage.getItem("parent_folder");
 
   const mimeTypeFile = file.value.files[0].type;
+
+  if(file.value.files[0].size > 1000000){
+    errors.value = "Ce fichier est trop volumineux, la taille maximal autorisé est de 1 mo";
+    loader.value = false;
+    return;
+  }
 
   // Verify the type of file, only csv and docx accepted
   switch (mimeTypeFile) {
@@ -365,15 +302,10 @@ const deleteDoc = (idDoc) => {
   <div id="loader" v-show="loader">
     <div class="loader"></div>
   </div>
+  <div id="loader" v-if="errors !== ''">
+    <div><h3>{{errors}}</h3></div>
+  </div>
   <section>
-    <button
-      v-show="gisInited"
-      id="authorize_button"
-      @click="handleAuthClick()"
-      class="bigbutton"
-    >
-      Connexion
-    </button>
     <label for="file">upload file</label>
     <input
       ref="file"
@@ -386,17 +318,8 @@ const deleteDoc = (idDoc) => {
   <section>
     <ul v-for="(doc, index) in listDocs">
       <h2>{{ doc }}</h2>
-      <textarea
-        rows="5"
-        cols="40"
-        :ref="
-          (el) => {
-            varMerge[index] = el;
-          }
-        "
-      >
-      </textarea
-      ><br />
+      <textarea rows="5" cols="40" :ref="(el) => {varMerge[index] = el}">
+      </textarea><br/>
       <button class="smallbutton" @click="openDoc(doc.id, doc.mimeType)">
         open
       </button>
@@ -404,11 +327,11 @@ const deleteDoc = (idDoc) => {
         merge
       </button>
       <button class="smallbutton" @click="deleteDoc(doc.id)">delete</button>
+      <section>
+          <iframe :src="'https://docs.google.com/document/d/'+doc.id+'/edit'" id="googleFrame"></iframe>
+      </section>
     </ul>
   </section>
-  <!--<section>
-          <iframe src="https://docs.google.com/document/d/1BYz7JUy3c5xOuOMbzZ5EmCUOpD9iu6F1MU9S0KEsVXs/edit" id="googleFrame"></iframe>
-        </section>-->
 </template>
 
 <style scoped>
@@ -421,8 +344,8 @@ h2 {
 }
 
 #googleFrame {
-  width: 1500px;
-  height: 1000px;
+  width: 500px;
+  height: 300px;
 }
 
 .bigbutton {

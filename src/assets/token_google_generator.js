@@ -1,5 +1,5 @@
-// convert a pem Key into a CryptoKey object that can be use in the web crypto api
-const importRsaKey = (pem) => {
+// convert a pem Key into a CryptoKey object that can be use with the web crypto api sign
+export function importRsaKey(pem) {
   // fetch the part of the PEM string between header and footer
   const pemHeader = "-----BEGIN PRIVATE KEY-----";
   const pemFooter = "-----END PRIVATE KEY-----";
@@ -25,7 +25,7 @@ const importRsaKey = (pem) => {
 };
 
 // convert String to ArrayBuffer
-const str2ab = (str) => {
+function str2ab(str){
     const buf = new ArrayBuffer(str.length);
     const bufView = new Uint8Array(buf);
     for (let i = 0, strLen = str.length; i < strLen; i++) {
@@ -35,20 +35,20 @@ const str2ab = (str) => {
 };
 
 // convert b64 string into bs64-url string
-const b64UrlEncoder = (str) => {
-  return str.replace(/\+/g, "-").replace(/\//g, "_").replace(/\=+$/, "");
+export function b64UrlEncoder(str){
+  return window.btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/\=+$/, "");
 };
 
 // convert byte array into b64-url string
-const b64UrlEncoderByte = (byteArray) => {
-  return btoa(
-    Array.from(new Uint8Array(byteArray))
-      .map((val) => {
-        return String.fromCharCode(val);
-      })
-      .join("")
-  )
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/\=/g, "");
+export function b64UrlEncoderByte(byteArray){
+    return window.btoa(
+        Array.from(new Uint8Array(byteArray))
+          .map((val) => {
+            return String.fromCharCode(val);
+          })
+          .join("")
+      )
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/\=/g, "");
 };

@@ -313,9 +313,6 @@ const deleteDoc = (idDoc) => {
       </button>
     </ul>
   </section>
-  <!--<section>
-      <iframe src="https://docs.google.com/document/d/1BYz7JUy3c5xOuOMbzZ5EmCUOpD9iu6F1MU9S0KEsVXs/edit" id="googleFrame"></iframe>
-    </section>-->
 </template>
 
 <style scoped>

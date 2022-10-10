@@ -55,7 +55,7 @@ const gauthLoaded = async () => {
   claim.aud = credentials.token_uri;
   claim.scope = SCOPES;
   claim.iss = credentials.client_email;
-  claim.exp = date + 1000;
+  claim.exp = date + 3000;
   claim.iat = date;
   claim = tgg.b64UrlEncoder(JSON.stringify(claim));
   // create a array of byte with data sign
@@ -307,13 +307,7 @@ const deleteDoc = (idDoc) => {
   </div>
   <section>
     <label for="file">upload file</label>
-    <input
-      ref="file"
-      v-on:change="uploadFile()"
-      id="file"
-      type="file"
-      style="display: none"
-    />
+    <input ref="file" v-on:change="uploadFile()" id="file" type="file" style="display: none"/>
   </section>
   <section>
     <ul v-for="(doc, index) in listDocs">
@@ -327,9 +321,9 @@ const deleteDoc = (idDoc) => {
         merge
       </button>
       <button class="smallbutton" @click="deleteDoc(doc.id)">delete</button>
-      <section>
+      <!--<section>
           <iframe :src="'https://docs.google.com/document/d/'+doc.id+'/edit'" id="googleFrame"></iframe>
-      </section>
+      </section>-->
     </ul>
   </section>
 </template>

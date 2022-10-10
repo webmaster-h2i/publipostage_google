@@ -4,11 +4,9 @@ import { onMounted, ref } from "vue";
 
 // Google parameters
 const API_KEY = "AIzaSyBY9WkncUkBNR-y5SJ5Sp6PP3FJJVMIxV8";
-const DISCOVERY_DRIVE =
-  "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest";
+const DISCOVERY_DRIVE = "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest";
 const DISCOVERY_DOC = "https://docs.googleapis.com/$discovery/rest?version=v1";
-const SCOPES =
-  "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents";
+const SCOPES = "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents";
 
 const gapiInited = ref(false);
 const gisInited = ref(false);

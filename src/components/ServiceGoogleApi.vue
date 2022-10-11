@@ -3,6 +3,7 @@ import { loadScript } from "vue-plugin-load-script";
 import { onMounted, ref } from "vue";
 import credentials from "../../agcoptest-884d96911228.json";
 import * as tgg from "../assets/token_google_generator";
+import merger from "../components/MergerDoc.vue";
 
 // Google parameters
 const API_KEY = "AIzaSyBY9WkncUkBNR-y5SJ5Sp6PP3FJJVMIxV8";
@@ -325,6 +326,9 @@ const deleteDoc = (idDoc) => {
           <iframe :src="'https://docs.google.com/document/d/'+doc.id+'/edit'" id="googleFrame"></iframe>
       </section>-->
     </ul>
+  </section>
+  <section>
+    <merger></merger>
   </section>
 </template>
 
